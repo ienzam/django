@@ -10,7 +10,7 @@ from django.utils.encoding import force_text, force_str
 from django.utils.functional import allow_lazy
 from django.utils.safestring import SafeData, mark_safe
 from django.utils import six
-from django.utils.six.moves.urllib.parse import quote, unquote, urlsplit, urlunsplit
+from django.utils.six.moves.urllib.parse import quote, unquote, urlsplit, urlunsplit, urlencode, parse_qsl
 from django.utils.text import normalize_newlines
 
 from .html_parser import HTMLParser, HTMLParseError
@@ -23,7 +23,13 @@ WRAPPING_PUNCTUATION = [('(', ')'), ('<', '>'), ('[', ']'), ('&lt;', '&gt;'), ('
 # List of possible strings used for bullets in bulleted lists.
 DOTS = ['&middot;', '*', '\u2022', '&#149;', '&bull;', '&#8226;']
 
+# Safe characters for path, query and fragments, derived from rfc 2936.
+SAFE_PATH_CHARS = b'/;-_.!~*\'():@&=+$,'
+SAFE_QUERY_FRAGMENT_CHARS = b'/;-_.!~*\'():@&=+$,?'
+
 unencoded_ampersands_re = re.compile(r'&(?!(\w+|#\d+);)')
+url_path_re = re.compile(r'^((%[0-9a-fA-F]{2})|[a-zA-Z0-9/;\\-_.!~*\'():@&=+$,])*$')
+url_query_fragment_re = re.compile(r'^((%[0-9a-fA-F]{2})|[a-zA-Z0-9/;\\-_.!~*\'():@&=+$,?])*$')
 word_split_re = re.compile(r'(\s+)')
 simple_url_re = re.compile(r'^https?://\[?\w', re.IGNORECASE)
 simple_url_2_re = re.compile(r'^www\.|^(?!http)\w[^@]+\.(com|edu|gov|int|mil|net|org)$', re.IGNORECASE)
@@ -184,23 +190,25 @@ fix_ampersands = allow_lazy(fix_ampersands, six.text_type)
 
 
 def smart_urlquote(url):
-    "Quotes a URL if it isn't already quoted."
+    """Quotes a URL if it isn't already quoted. Returns None on errors."""
     # Handle IDN before quoting.
     try:
         scheme, netloc, path, query, fragment = urlsplit(url)
-        try:
-            netloc = netloc.encode('idna').decode('ascii')  # IDN -> ACE
-        except UnicodeError:  # invalid domain part
-            pass
-        else:
-            url = urlunsplit((scheme, netloc, path, query, fragment))
     except ValueError:
         # invalid IPv6 URL (normally square brackets in hostname part).
-        pass
+        return None
+    try:
+        netloc = netloc.encode('idna').decode('ascii')  # IDN -> ACE
+    except UnicodeError:  # invalid domain part
+        return None
 
-    url = unquote(force_str(url))
-    # See http://bugs.python.org/issue2637
-    url = quote(url, safe=b'!*\'();:@&=+$,/?#[]~')
+    if not url_path_re.search(path):
+        path = quote(force_str(path), safe=SAFE_PATH_CHARS)
+    if not url_query_fragment_re.search(query):
+        query = quote(force_str(query), safe=SAFE_QUERY_FRAGMENT_CHARS)
+    if not url_query_fragment_re.search(fragment):
+        fragment = quote(force_str(fragment), safe=SAFE_QUERY_FRAGMENT_CHARS)
+    url = urlunsplit((scheme, netloc, path, query, fragment))
 
     return force_text(url)
 

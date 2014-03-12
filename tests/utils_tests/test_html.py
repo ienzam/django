@@ -198,8 +198,56 @@ class TestUtilsHtml(TestCase):
         self.assertEqual(quote('http://öäü.com/öäü/'), 'http://xn--4ca9at.com/%C3%B6%C3%A4%C3%BC/')
         # Ensure that everything unsafe is quoted, !*'();:@&=+$,/?#[]~ is considered safe as per RFC
         self.assertEqual(quote('http://example.com/path/öäü/'), 'http://example.com/path/%C3%B6%C3%A4%C3%BC/')
-        self.assertEqual(quote('http://example.com/%C3%B6/ä/'), 'http://example.com/%C3%B6/%C3%A4/')
+        self.assertEqual(quote('http://example.com/%C3%B6/ä/'), 'http://example.com/%25C3%25B6/%C3%A4/')
         self.assertEqual(quote('http://example.com/?x=1&y=2'), 'http://example.com/?x=1&y=2')
+        self.assertEqual(quote('http://example.com/?x=ä&ä=2'), 'http://example.com/?x=%C3%A4&%C3%A4=2')
+        # Ensure empty query key does not get lost
+        self.assertRegexpMatches(quote('http://example.com/?empty'), 'http:\/\/example\.com\/\?empty=?')
+        # Ensure that embedded quoted url does not get unquoted
+        self.assertEqual(
+            quote('http://example.com/?q=http%3A%2F%2Fexample.com%2F%3Fx%3D1%26q%3Ddjango'),
+            'http://example.com/?q=http%3A%2F%2Fexample.com%2F%3Fx%3D1%26q%3Ddjango'
+        )
+        # Ensure that " gets quoted
+        self.assertEqual(
+            quote('http://example.com/pa"th?k"ey=va"lue&ke"y=value"&k"ey=val"ue#frag"ment'),
+            'http://example.com/pa%22th?k%22ey=va%22lue&ke%22y=value%22&k%22ey=val%22ue#frag%22ment'
+        )
+        # Ensure wrong url returns None
+        self.assertEqual(quote('http://exa[mple.com/'), None)  # Invalid IPv6 url
+        self.assertEqual(quote('http://../'), None)  # Invalid domain part
+
+    def test_urlize(self):
+        self.assertEqual(
+            html.urlize('Hello http://google.com/?sdf=443&s="sdf" hello'),
+            'Hello <a href="http://google.com/?sdf=443&s=%22sdf">http://google.com/?sdf=443&s="sdf</a>" hello'
+        )
+        self.assertEqual(
+            html.urlize('Email me@example.com'),
+            'Email <a href="mailto:me@example.com">me@example.com</a>'
+        )
+        self.assertEqual(
+            html.urlize('Double urls http://example.com/?x=ä&ä=4 http://example.com/?x=ä&ä=2 test'),
+            'Double urls <a href="http://example.com/?x=%C3%A4&%C3%A4=4">http://example.com/?x=ä&ä=4</a> '
+            '<a href="http://example.com/?x=%C3%A4&%C3%A4=2">http://example.com/?x=ä&ä=2</a> test'
+        )
+        self.assertEqual(
+            html.urlize('Invalid url http://ex[ls.com/ does not get a tag'),
+            'Invalid url http://ex[ls.com/ does not get a tag'
+        )
+        self.assertEqual(
+            html.urlize('text <> and url http://example.com/<tag>?<q>=<v> gets escaped', autoescape=True),
+            'text &lt;&gt; and url <a href="http://example.com/%3Ctag%3E?%3Cq%3E=%3Cv%3E">'
+            'http://example.com/&lt;tag&gt;?&lt;q&gt;=&lt;v&gt;</a> gets escaped'
+        )
+        self.assertEqual(
+            html.urlize('No follow http://example.com', nofollow=True),
+            'No follow <a href="http://example.com" rel="nofollow">http://example.com</a>'
+        )
+        self.assertEqual(
+            html.urlize('Truncate http://example.com', trim_url_limit=5),
+            'Truncate <a href="http://example.com">ht...</a>'
+        )
 
     def test_conditional_escape(self):
         s = '<h1>interop</h1>'
